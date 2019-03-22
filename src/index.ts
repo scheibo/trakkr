@@ -2,6 +2,64 @@ import * as colors from 'colors/safe';
 import {table} from 'table';
 import * as trakr from 'trakr';
 
+export {Tracer, TRACER} from 'trakr';
+
+export interface FormatterOptions {
+}
+
+export class Formatter {
+  static create(options?: FormatterOptions) {
+  }
+
+  display(options?: FormatterOptions) {
+  }
+}
+
+export abstract class Tracker extends trakr.Tracker {
+  static create(options?: FormatterOptions & TrackerOptions) {
+  }
+
+  abstract display(options?: FormatterOptions | Formatter);
+}
+
+class FormattingTracker extends Tracker {
+  protected readonly tracker: trakr.Tracker
+  protected readonly options: FormatterOptions | Formatter;
+
+  constructor(tracker: trakr.Tracker, options?: FormatterOptions | Formatter) {
+    this.tracker = tracker;
+    this.options = options;
+  }
+
+  display(options?: FormatterOptions | Formatter) {
+    if (options) {
+    } else {
+      if (this.options instanceof Formatter) {
+        this.options.format(this);
+      } else {
+        Formatter.create(this.options).display()
+      }
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 type Formatted = string;
 type Raw = (number|string);
 type Data = Array<[Formatted[], Raw[]]>;
