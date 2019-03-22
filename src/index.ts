@@ -2,7 +2,36 @@ import * as colors from 'colors/safe';
 import {table} from 'table';
 import * as trakr from 'trakr';
 
-export {Timer, TRACER} from 'trakr';  // TODO
+export {Timer, TRACER, Stats} from 'trakr';  // TODO
+
+export function aggregateStats(timers: trakr.Timer[], fn = trakr.Stats.median): Map<string, trakr.Stats> {
+  const grouped: Map<string, trakr.Stats[]> = new Map();
+  for (const timer of timers) {
+    for (const [name, stats] of timer.stats().entries()) {
+      const s = grouped.get(name) || [];
+      if (!s.length) grouped.set(name, s);
+      s.push(stats);
+    }
+  }
+
+  const combined: Map<string, trakr.Stats> = new Map();
+  for (const [name, stats] of grouped.entries()) {
+   combined.set(name, {
+      tot: fn(stats.map(s => s.tot)),
+      avg: fn(stats.map(s => s.avg)),
+      cnt: fn(stats.map(s => s.cnt)),
+      std: fn(stats.map(s => s.std)),
+      min: fn(stats.map(s => s.min)),
+      max: fn(stats.map(s => s.max)),
+      p50: fn(stats.map(s => s.p50)),
+      p90: fn(stats.map(s => s.p90)),
+      p95: fn(stats.map(s => s.p95)),
+      p99: fn(stats.map(s => s.p99)),
+    });
+  }
+
+  return combined;
+}
 
 type Formatted = string;
 type Raw = (number|string);
