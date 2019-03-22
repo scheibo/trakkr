@@ -30,58 +30,71 @@ export class Formatter {
 
     if (total) {
       out += `\n${colors.bold(colors.underline('Time'))}` +
-          ` (${format(total)})\n`;
+        ` (${format(total)})\n`;
     }
 
     if (stats.size) {
-      const header = ['name', 'tot', 'cnt', 'p50', 'p90', 'p95', 'p99'];
-      if (this.full) header.push('min', 'max', 'avg', 'std');
-      const maxes = (new Array(header.length)).fill(-Infinity);
-
-      const data: Data = [];
-      for (const [name, s] of stats.entries()) {
-        const formatted: Formatted[] = [name];
-        const raw: Raw[] = [name];
-        for (let i = 1; i < header.length; i++) {
-          const col = header[i] as keyof trakr.Stats;
-          const r = s[col];
-          raw.push(r);
-          if (col === 'cnt') {
-            formatted.push(`${r}`);
-            continue;
-          }
-          let f = format(r as number);
-          if (total) f += ` (${percent(r, total)})`;
-          formatted.push(f);
-        }
-        multimax(maxes, formatted);
-        data.push([formatted, raw]);
-      }
-
-      if (this.sort) data.sort((a, b) => this.sort!(header, a[1], b[1]));
-      out += this.fn(header, data, maxes);
+      out += this.displayStats(stats, total);
     }
 
     if (t.counters.size) {
       if (!stats.size) out += '\n';
       out += `\n${colors.bold(colors.underline('Counters'))}\n`;
+      out += this.displayCounters(t.counters);
+    }
 
-      const header = ['name', 'count'];
+    return out;
+  }
 
-      const groups = new Map();
-      for (const [name, count] of t.counters.entries()) {
-        const [prefix, suffix] = name.split(/:/, 2);
-        let group = groups.get(prefix);
-        if (!group) groups.set(prefix, (group = []));
-        group.push([name, count]);
-      }
+  displayStats(stats: Map<string, trakr.Stats>, total?: number): string {
+    const header = ['name', 'tot', 'cnt', 'p50', 'p90', 'p95', 'p99'];
+    if (this.full) header.push('min', 'max', 'avg', 'std');
+    const maxes = (new Array(header.length)).fill(-Infinity);
 
-      for (const [group, data] of groups.entries()) {
-        if (this.sort) {
-          data.sort((a: Raw[], b: Raw[]) => this.sort!(header, a, b));
+    const data: Data = [];
+    for (const [name, s] of stats.entries()) {
+      const formatted: Formatted[] = [name];
+      const raw: Raw[] = [name];
+      for (let i = 1; i < header.length; i++) {
+        const col = header[i] as keyof trakr.Stats;
+        const r = s[col];
+        raw.push(r);
+        if (col === 'cnt') {
+          formatted.push(`${r}`);
+          continue;
         }
-        out += this.fn(header, data);
+        let f = format(r as number);
+        if (total) f += ` (${percent(r, total)})`;
+        formatted.push(f);
       }
+      multimax(maxes, formatted);
+      data.push([formatted, raw]);
+    }
+
+    let out = '';
+    if (this.sort) data.sort((a, b) => this.sort!(header, a[1], b[1]));
+    out += this.fn(header, data, maxes);
+
+    return out;
+  }
+
+  displayCounters(counters: Map<string, number>): string {
+    const header = ['name', 'count'];
+
+    const groups = new Map();
+    for (const [name, count] of counters.entries()) {
+      const [prefix, suffix] = name.split(/:/, 2);
+      let group = groups.get(prefix);
+      if (!group) groups.set(prefix, (group = []));
+      group.push([name, count]);
+    }
+
+    let out = '';
+    for (const [group, data] of groups.entries()) {
+      if (this.sort) {
+        data.sort((a: Raw[], b: Raw[]) => this.sort!(header, a, b));
+      }
+      out += this.fn(header, data);
     }
 
     return out;
