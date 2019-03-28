@@ -2,9 +2,10 @@ import * as colors from 'colors/safe';
 import {table} from 'table';
 import * as trakr from 'trakr';
 
-export {Timer, TRACER, Stats} from 'trakr';  // TODO
+export {Stats, Timer, TRACER} from 'trakr';  // TODO
 
-export function aggregateStats(timers: trakr.Timer[], fn = trakr.Stats.median): Map<string, trakr.Stats> {
+export function aggregateStats(
+    timers: trakr.Timer[], fn = trakr.Stats.median): Map<string, trakr.Stats> {
   const grouped: Map<string, trakr.Stats[]> = new Map();
   for (const timer of timers) {
     for (const [name, stats] of timer.stats().entries()) {
@@ -16,11 +17,15 @@ export function aggregateStats(timers: trakr.Timer[], fn = trakr.Stats.median): 
 
   const combined: Map<string, trakr.Stats> = new Map();
   for (const [name, stats] of grouped.entries()) {
-   combined.set(name, {
-      tot: fn(stats.map(s => s.tot)),
-      avg: fn(stats.map(s => s.avg)),
+    combined.set(name, {
       cnt: fn(stats.map(s => s.cnt)),
+      sum: fn(stats.map(s => s.sum)),
+      avg: fn(stats.map(s => s.avg)),
+      var : fn(stats.map(s => s.var)),
       std: fn(stats.map(s => s.std)),
+      sem: fn(stats.map(s => s.sem)),
+      moe: fn(stats.map(s => s.moe)),
+      rme: fn(stats.map(s => s.rme)),
       min: fn(stats.map(s => s.min)),
       max: fn(stats.map(s => s.max)),
       p50: fn(stats.map(s => s.p50)),
@@ -59,7 +64,7 @@ export class Formatter {
 
     if (total) {
       out += `\n${colors.bold(colors.underline('Time'))}` +
-        ` (${format(total)})\n`;
+          ` (${formatMillis(total)})\n`;
     }
 
     if (stats.size) {
@@ -76,7 +81,7 @@ export class Formatter {
   }
 
   displayStats(stats: Map<string, trakr.Stats>, total?: number): string {
-    const header = ['name', 'tot', 'cnt', 'p50', 'p90', 'p95', 'p99'];
+    const header = ['name', 'sum', 'cnt', 'p50', 'p90', 'p95', 'p99'];
     if (this.full) header.push('min', 'max', 'avg', 'std');
     const maxes = (new Array(header.length)).fill(-Infinity);
 
@@ -92,8 +97,8 @@ export class Formatter {
           formatted.push(`${r}`);
           continue;
         }
-        let f = format(r as number);
-        if (total) f += ` (${percent(r, total)})`;
+        let f = formatMillis(r as number);
+        if (total) f += ` (${formatPercent(r, total)})`;
         formatted.push(f);
       }
       multimax(maxes, formatted);
@@ -161,27 +166,46 @@ function sv(sep: string) {
   };
 }
 
-function format(ms: number): string {
-  if (ms < 0.001) return `${decimal(ms * 1000 * 1000)}ns`;
-  if (ms < 1) return `${decimal(ms * 1000)}\u03BCs`;
-  if (ms < 1000) return `${decimal(ms)}ms`;
+export function formatMillis(ms: number): string {
+  const abs = Math.abs(ms);
+  if (abs < 0.001) return `${decimal(ms * 1000 * 1000)}ns`;
+  if (abs < 1) return `${decimal(ms * 1000)}\u03BCs`;
+  if (abs < 1000) return `${decimal(ms)}ms`;
   return `${decimal(ms / 1000)}s`;
 }
 
 function decimal(n: number): string {
-  if (n < 1) return n.toFixed(3);
-  if (n < 10) return n.toFixed(2);
-  if (n < 100) return n.toFixed(1);
+  const abs = Math.abs(n);
+  if (abs < 1) return n.toFixed(3);
+  if (abs < 10) return n.toFixed(2);
+  if (abs < 100) return n.toFixed(1);
   return n.toFixed();
 }
 
 function readable(s: string): string {
   if (s === 'cnt') return 'count';
-  if (s === 'tot') return 'total';
+  if (s === 'sum') return 'total';
   return s;
 }
 
-function percent(n: number, d: number): string {
+export function formatHHMMSS(ms: number, round?: boolean): string {
+  let s = ms / 1000;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s - (h * 3600)) / 60);
+  s = s - (h * 3600) - (m * 60);
+  if (round) s = Math.round(s);
+
+  const mm = m < 10 ? `0${m}` : `${m}`;
+  const ss = s < 10 ? `0${s}` : `${s}`;
+  if (h > 0) {
+    const hh = h < 10 ? `0${h}` : `${h}`;
+    return `${hh}:${mm}:${ss}`;
+  } else {
+    return `${mm}:${ss}`;
+  }
+}
+
+export function formatPercent(n: number, d: number): string {
   return `${(n * 100 / d).toFixed(2)}%`;
 }
 
