@@ -12,9 +12,11 @@ export class Tracker {
   }
 
   private readonly delegate: trakr.Tracker;
+  private readonly formatter: Formatter;
 
-  constructor(delegate: trakr.Tracker) {
+  constructor(delegate: trakr.Tracker, options?: FormatterOptions|Formatter) {
     this.delegate = delegate;
+    this.formatter = Formatter.get(options);
   }
 
   get counters(): Map<string, number> {
@@ -32,6 +34,15 @@ export class Tracker {
   stats(pop?: boolean): Map<string, Stats> {
     return this.delegate.stats(pop);
   }
+
+  format(options?: FormatterOptions|Formatter) {
+    const formatter = options ? Formatter.get(options) : this.formatter;
+    return formatter.formatTracker(this);
+  }
+
+  toString(): string {
+    return this.format();
+  }
 }
 
 export interface TimerOptions extends trakr.TimerOptions {}
@@ -42,9 +53,11 @@ export class Timer {
   }
 
   private readonly delegate: trakr.Timer;
+  private readonly formatter: Formatter;
 
-  constructor(delegate: trakr.Timer) {
+  constructor(delegate: trakr.Timer, options?: FormatterOptions|Formatter) {
     this.delegate = delegate;
+    this.formatter = Formatter.get(options);
   }
 
   count(name: string, val?: number) {
@@ -74,6 +87,15 @@ export class Timer {
   // tslint:disable-next-line:no-any
   time(name: string): (a: any) => any {
     return this.delegate.time(name);
+  }
+
+  format(options?: FormatterOptions|Formatter) {
+    const formatter = options ? Formatter.get(options) : this.formatter;
+    return formatter.formatTimer(this);
+  }
+
+  toString(): string {
+    return this.format();
   }
 }
 
@@ -209,5 +231,76 @@ export class Stats extends trakr.Stats {
       ci95: ci(d95, md95),
       ci99: ci(d99, md99),
     };
+  }
+
+  static aggregate(stats: Stats[], fn = Stats.median): Stats {
+    const aggregated: {-readonly[P in keyof Stats]?: Array<Stats[P]>|
+                       Stats[P]} = {};
+    let k: keyof Stats;
+    for (const s of stats) {
+      for (k in s) {
+        ((aggregated[k] = aggregated[k] || []) as number[]).push(s[k]);
+      }
+    }
+    for (k in aggregated) {
+      aggregated[k] = fn(aggregated[k] as number[]);
+    }
+    return aggregated as Stats;
+  }
+}
+
+
+export interface FormatterOptions {}
+
+export class Formatter {
+  static get(options?: FormatterOptions|Formatter) {
+    return options instanceof Formatter ? options : Formatter.create(options);
+  }
+
+  static create(options?: FormatterOptions) {
+    return new Formatter(options);
+  }
+
+  constructor(options?: FormatterOptions) {
+    // TODO
+  }
+
+  format(obj: Timer|Timer[]|Tracker|Tracker[]|Stats|Stats[]) {
+    if (Array.isArray(obj)) {
+      if (!obj.length) return '';
+      const o = obj[0];
+      if (o instanceof Tracker) return this.formatTrackers(obj as Tracker[]);
+      if (o instanceof Timer) return this.formatTimers(obj as Timer[]);
+      if (o instanceof Stats) return this.formatAllStats(obj as Stats[]);
+      throw new TypeError('Invalid object type for format');
+    }
+    if (obj instanceof Tracker) return this.formatTracker(obj);
+    if (obj instanceof Timer) return this.formatTimer(obj);
+    if (obj instanceof Stats) return this.formatStats(obj);
+    throw new TypeError('Invalid object type for format');
+  }
+
+  formatTracker(tracker: Tracker) {
+    return '';  // TODO
+  }
+
+  formatTrackers(trackers: Tracker[]) {
+    return '';  // TODO
+  }
+
+  formatTimer(timer: Timer) {
+    return '';  // TODO
+  }
+
+  formatTimers(timers: Timer[]) {
+    return '';  // TODO
+  }
+
+  formatStats(stats: Stats) {
+    return '';  // TODO
+  }
+
+  formatAllStats(stats: Stats[]) {
+    return '';  // TODO
   }
 }
