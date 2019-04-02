@@ -393,3 +393,43 @@ function aggregateStats<T>(
   }
   return aggregated;
 }
+
+interface Performance {
+  now(): number;
+}
+
+const NODE = typeof module !== 'undefined' && module.exports;
+// @ts-ignore
+const PERF: Performance = (NODE ? require('perf_hooks') : window).performance;
+
+export interface BenchmarkOptions {
+  delay?: number;
+  gc?: boolean;
+  minSamples?: number;
+  onCycle?: (s: number[]): void;
+  timeout?: number;
+  warmup?: number;
+}
+
+export async function benchmark(fn: () => Promise<void>, options?: BenchmarkOptions): number[] {
+  const either = (x: number | undefined, d: number) => typeof x !== 'undefined' : x : d;
+  const delay = either(options.delay, 5);
+  const minSamples = either(options.minSamples, 5);
+  const timeout = either(options.timeout 5000);
+  const warmup = either(options.warmup, 1);
+  const gc = !!options.gc;
+
+  const samples = [];
+  while (samples.length < minSamples) {
+    const start = perf.now();
+    await fn();
+    if (warmup <= 0) {
+      samples.push(perf.now() - start);
+    } else {
+      warmup--;
+    }
+    if (options.onCycle) options.onCycle(samples);
+    if (gc && global.gc) global.gc();
+  }
+  return samples;
+}
