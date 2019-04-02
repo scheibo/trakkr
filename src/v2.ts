@@ -134,6 +134,7 @@ const TABLE = [
 
 export class Stats extends trakr.Stats {
   // Mann-Whitney U test comparison
+  // Based on Benchmark.js, copyright 2010-2016 Mathias Bynens
   static utestCompare(control: number[], test: number[]) {
     if (control === test) return 0;
 
@@ -267,6 +268,20 @@ const STATS: {[k in keyof Stats]: string} = {
   p99: '99th percentile',
 };
 // clang-format on
+
+const GFM = {
+  border: {
+    bodyLeft: '|',
+    bodyRight: '|',
+    bodyJoin: '|',
+
+    joinBody: '-',
+    joinLeft: '|',
+    joinRight: '|',
+    joinJoin: '|',
+  },
+  drawHorizontalLine: (index: number) => index === 1,
+};
 
 export interface FormatterOptions {}
 
@@ -406,30 +421,111 @@ export interface BenchmarkOptions {
   delay?: number;
   gc?: boolean;
   minSamples?: number;
-  onCycle?: (s: number[]): void;
+  onCycle?: (s: number[]) => void;
   timeout?: number;
   warmup?: number;
+  perf?: Performance;
 }
 
-export async function benchmark(fn: () => Promise<void>, options?: BenchmarkOptions): number[] {
-  const either = (x: number | undefined, d: number) => typeof x !== 'undefined' : x : d;
-  const delay = either(options.delay, 5);
-  const minSamples = either(options.minSamples, 5);
-  const timeout = either(options.timeout 5000);
-  const warmup = either(options.warmup, 1);
-  const gc = !!options.gc;
+export async function benchmark(
+    fn: () => Promise<void>, options?: BenchmarkOptions): Promise<number[]> {
+  const defined = (v: number|undefined) => typeof v !== 'undefined';
+  const delay = options && defined(options.delay) ? options.delay! : 5;
+  const minSamples =
+      options && defined(options.minSamples) ? options.minSamples! : 5;
+  const timeout = options && defined(options.timeout) ? options.timeout! : 5000;
+  const gc = !!(options && options.gc);
+  const perf = (options && options.perf) || PERF;
 
-  const samples = [];
-  while (samples.length < minSamples) {
-    const start = perf.now();
+  let warmup = options && defined(options.warmup) ? options.warmup! : 1;
+  const start = perf.now();
+  const samples: number[] = [];
+  while (samples.length < minSamples && (perf.now() - start) < timeout) {
+    const before = perf.now();
     await fn();
     if (warmup <= 0) {
-      samples.push(perf.now() - start);
+      samples.push(perf.now() - before);
     } else {
       warmup--;
     }
-    if (options.onCycle) options.onCycle(samples);
+    if (options && options.onCycle) options.onCycle(samples);
     if (gc && global.gc) global.gc();
+    await new Promise(res => setTimeout(res, delay));
   }
   return samples;
+}
+
+export class Benchmarker {
+  private samples?: number[];
+  private output?: boolean;
+
+  static async run(
+      fn: () => Promise<void>, options?: BenchmarkOptions,
+      out = process.stdout): Promise<number[]> {
+    const benchmarker = new Benchmarker();
+
+    options = options || {};
+    const perf = (options && options.perf) || PERF;
+    options.perf = perf;
+    options.onCycle = s => benchmarker.samples = s;
+
+    const start = perf.now();
+    const interval = setInterval(() => {
+      if (!benchmarker.samples || !benchmarker.samples.length) return;
+      const samples = benchmarker.samples.length;
+      if (samples > 1) {
+        out.write('\r\x1b[K');
+        benchmarker.output = true;
+      }
+      const elapsed = Formatter.hhmmss(perf.now() - start, true);
+      out.write(`${samples} samples collected (${elapsed})`);
+    }, 1000);
+
+    return benchmark(fn, options)
+        .finally(() => {
+          clearInterval(interval);
+          if (benchmarker.output) out.write('\n');
+        })
+        .catch(() => process.exit(1));
+  }
+
+  // TODO: move to Formatter?
+  static compare(control: number[], test: number[], out = process.stdout) {
+    const bootstrap = Stats.bootstrap(control, test);
+    const sc = Stats.compute(control);
+    const st = Stats.compute(test);
+
+    const fmt = Formatter.millis;
+    const display = Benchmarker.display;
+    const header = ['num', 'control', 'test', 'd50', 'd90', 'd95', 'd99'];
+    out.write(table([
+      header.map(h => colors.bold(h)),
+      [
+        Math.min(sc.cnt, st.cnt), `${fmt(sc.avg)} (${fmt(sc.p50)})`,
+        `${fmt(sc.avg)} (${fmt(sc.p50)})`,
+        display(bootstrap.d50, bootstrap.ci50, sc.p50),
+        display(bootstrap.d90, bootstrap.ci90, sc.p90),
+        display(bootstrap.d95, bootstrap.ci95, sc.p95),
+        display(bootstrap.d99, bootstrap.ci99, sc.p99)
+      ],
+    ]));
+    out.write('\n');
+  }
+
+  // TODO: move to Formatter?
+  static display(diff: number, ci: number, percentile: number) {
+    const fmt = Formatter.millis;
+    const diffp = Formatter.percent(diff, percentile);
+    const cip = Formatter.percent(ci, percentile);
+    // TODO: break with config instead of '\n'
+    return Benchmarker.color(
+        diff, ci)(`${fmt(diff)} \u00B1${fmt(ci)}\n(${diffp} \u00B1${cip})`);
+  }
+
+  // TODO: move to Formatter?
+  static color(diff: number, ci: number) {
+    return (diff - ci < 0 && diff + ci < 0) ?
+        colors.red :
+        (diff - ci > 0 && diff + ci > 0) ? colors.green : colors.gray;
+  }
 }
