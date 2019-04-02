@@ -365,12 +365,31 @@ export class Formatter {
   }
 }
 
-function aggregate(counters: Array<Map<string, number>>): Map<string, number> {
+function aggregateCounters<T>(
+    ts: T[], fn: (t: T) => Map<string, number>): Map<string, number> {
   const aggregated = new Map();
-  for (const counter of counters) {
-    for (const [k, v] of counter.entries()) {
-      aggregated.set(k, (aggregated.get(k) || 0) + v);
+  for (const t of ts) {
+    for (const [name, sum] of fn(t).entries()) {
+      aggregated.set(name, (aggregated.get(name) || 0) + sum);
     }
+  }
+  return aggregated;
+}
+
+function aggregateStats<T>(
+    ts: T[], fn: (t: T) => Map<string, Stats>): Map<string, Stats> {
+  const grouped = new Map();
+  for (const t of ts) {
+    for (const [name, stats] of fn(t).entries()) {
+      const s = grouped.get(name) || [];
+      if (!s.length) grouped.set(name, s);
+      s.push(stats);
+    }
+  }
+
+  const aggregated = new Map();
+  for (const [name, stats] of grouped.entries()) {
+    aggregated.set(name, Stats.aggregate(stats));
   }
   return aggregated;
 }
