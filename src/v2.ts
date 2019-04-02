@@ -337,6 +337,31 @@ export class Formatter {
     return '';  // TODO
   }
 
+  static table(
+      header: string[], data: string[][], md?: boolean, maxWidth = 20) {
+    if (md) return table([header.map(colors.bold), ...data], GFM);
+
+    const maxes = (new Array(header.length)).fill(-Infinity);
+    const combined: string[][] = [header, ...data];
+    for (const row of combined) {
+      for (let i = 0; i < row.length; i++) {
+        const len = Stats.max(row[i].split(' ').map(c => c.length));
+        if (len > maxes[i]) maxes[i] = len;
+      }
+    }
+
+    return table([header.map(colors.bold), ...data], {
+      columns: maxes.map(max => ({
+                           wrapWord: true,
+                           width: Math.min(max, maxWidth),
+                         }))
+    });
+  }
+
+  static sv(header: string[], data: string[][], separator = ',') {
+    return [header, ...data].map(row => row.join(separator)).join('\n');
+  }
+
   static human(key: keyof Stats) {
     return STATS[key];
   }
@@ -379,6 +404,8 @@ export class Formatter {
     return `${(n * 100 / d).toFixed(2)}%`;
   }
 }
+
+export const FORMATTER = Formatter.create();
 
 function aggregateCounters<T>(
     ts: T[], fn: (t: T) => Map<string, number>): Map<string, number> {
@@ -455,13 +482,28 @@ export async function benchmark(
   return samples;
 }
 
+interface Stream {
+  write: (s: string) => void;
+  writeln: (s?: string) => void;
+  clear?: () => void;
+}
+
+// clang-format off
+const STREAM: Stream = NODE ?
+  { write(s: string) { process.stdout.write(s); },
+    writeln(s?: string) { process.stdout.write(`${s}\n`); },
+    clear() { process.stdout.write('\r\x1b[K'); } } :
+  { write(s: string) { console.log(s); },
+    writeln(s?: string) { console.log(s); } };
+// clang-format on
+
 export class Benchmarker {
   private samples?: number[];
   private output?: boolean;
 
   static async run(
       fn: () => Promise<void>, options?: BenchmarkOptions,
-      out = process.stdout): Promise<number[]> {
+      out = STREAM): Promise<number[]> {
     const benchmarker = new Benchmarker();
 
     options = options || {};
@@ -472,60 +514,64 @@ export class Benchmarker {
     const start = perf.now();
     const interval = setInterval(() => {
       if (!benchmarker.samples || !benchmarker.samples.length) return;
-      const samples = benchmarker.samples.length;
-      if (samples > 1) {
-        out.write('\r\x1b[K');
+      const n = benchmarker.samples.length;
+      if (n > 1 && out.clear) {
+        out.clear();
         benchmarker.output = true;
       }
       const elapsed = Formatter.hhmmss(perf.now() - start, true);
-      out.write(`${samples} samples collected (${elapsed})`);
+      out.write(`${n} sample${n === 1 ? '' : 's'} collected (${elapsed})`);
     }, 1000);
 
     return benchmark(fn, options)
         .finally(() => {
           clearInterval(interval);
-          if (benchmarker.output) out.write('\n');
+          if (benchmarker.output) out.writeln();
         })
         .catch(() => process.exit(1));
   }
 
-  // TODO: move to Formatter?
-  static compare(control: number[], test: number[], out = process.stdout) {
-    const bootstrap = Stats.bootstrap(control, test);
-    const sc = Stats.compute(control);
-    const st = Stats.compute(test);
+  static display(
+      control: number[], test?: number[], md?: boolean, formatter = FORMATTER,
+      out = STREAM) {
+    if (out.clear) out.clear();
+    const stats = Stats.compute(control);
+    if (!test) {
+      // TODO: table, md. Color MOE/RME
+      out.writeln(formatter.formatStats(stats));
+      return;
+    }
 
+    const bootstrap = Stats.bootstrap(control, test);
     const fmt = Formatter.millis;
-    const display = Benchmarker.display;
-    const header = ['num', 'control', 'test', 'd50', 'd90', 'd95', 'd99'];
-    out.write(table([
-      header.map(h => colors.bold(h)),
-      [
-        Math.min(sc.cnt, st.cnt), `${fmt(sc.avg)} (${fmt(sc.p50)})`,
-        `${fmt(sc.avg)} (${fmt(sc.p50)})`,
-        display(bootstrap.d50, bootstrap.ci50, sc.p50),
-        display(bootstrap.d90, bootstrap.ci90, sc.p90),
-        display(bootstrap.d95, bootstrap.ci95, sc.p95),
-        display(bootstrap.d99, bootstrap.ci99, sc.p99)
-      ],
-    ]));
-    out.write('\n');
+    out.writeln(Formatter.table(
+        ['num', 'control', 'test', 'd50', 'd90', 'd95', 'd99'], [[
+          `${Math.min(stats.cnt, test.length)}`,
+          `${fmt(stats.avg)} (${fmt(stats.p50)})`,
+          `${fmt(stats.avg)} (${fmt(stats.p50)})`,
+          Benchmarker.diff(bootstrap.d50, bootstrap.ci50, stats.p50, md),
+          Benchmarker.diff(bootstrap.d90, bootstrap.ci90, stats.p90, md),
+          Benchmarker.diff(bootstrap.d95, bootstrap.ci95, stats.p95, md),
+          Benchmarker.diff(bootstrap.d99, bootstrap.ci99, stats.p99, md)
+        ]],
+        md));
   }
 
-  // TODO: move to Formatter?
-  static display(diff: number, ci: number, percentile: number) {
+  private static diff(
+      diff: number, ci: number, percentile: number, md?: boolean) {
     const fmt = Formatter.millis;
     const diffp = Formatter.percent(diff, percentile);
     const cip = Formatter.percent(ci, percentile);
-    // TODO: break with config instead of '\n'
     return Benchmarker.color(
-        diff, ci)(`${fmt(diff)} \u00B1${fmt(ci)}\n(${diffp} \u00B1${cip})`);
+        diff, ci, md)(`${fmt(diff)} \u00B1${fmt(ci)} (${diffp} \u00B1${cip})`);
   }
 
-  // TODO: move to Formatter?
-  static color(diff: number, ci: number) {
+  private static color(diff: number, ci: number, md?: boolean) {
+    const red = md ? (s: string) => s : colors.red;
+    const green = md ? (s: string) => s : colors.green;
+    const gray = md ? (s: string) => `*${s}*` : colors.gray;
     return (diff - ci < 0 && diff + ci < 0) ?
-        colors.red :
-        (diff - ci > 0 && diff + ci > 0) ? colors.green : colors.gray;
+        red :
+        (diff - ci > 0 && diff + ci > 0) ? green : gray;
   }
 }
