@@ -249,6 +249,24 @@ export class Stats extends trakr.Stats {
   }
 }
 
+// clang-format off
+const STATS: {[k in keyof Stats]: string} = {
+  cnt: 'count',
+  sum: 'total',
+  avg: 'mean',
+  var: 'variance',
+  std: 'standard deviation',
+  sem: 'standard error of mean',
+  moe: 'margin of error',
+  rme: 'relative margin of error',
+  min: 'minimum',
+  max: 'maximum',
+  p50: '50th percentile',
+  p90: '90th percentile',
+  p95: '95th percentile',
+  p99: '99th percentile',
+};
+// clang-format on
 
 export interface FormatterOptions {}
 
@@ -303,4 +321,56 @@ export class Formatter {
   formatAllStats(stats: Stats[]) {
     return '';  // TODO
   }
+
+  static human(key: keyof Stats) {
+    return STATS[key];
+  }
+
+  static millis(ms: number): string {
+    const dec = Formatter.decimal;
+    const abs = Math.abs(ms);
+    if (abs < 0.001) return `${dec(ms * 1000 * 1000)}ns`;
+    if (abs < 1) return `${dec(ms * 1000)}\u03BCs`;
+    if (abs < 1000) return `${dec(ms)}ms`;
+    return `${dec(ms / 1000)}s`;
+  }
+
+  static decimal(n: number): string {
+    const abs = Math.abs(n);
+    if (abs < 1) return n.toFixed(3);
+    if (abs < 10) return n.toFixed(2);
+    if (abs < 100) return n.toFixed(1);
+    return n.toFixed();
+  }
+
+  static hhmmss(ms: number, round?: boolean): string {
+    let s = ms / 1000;
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s - (h * 3600)) / 60);
+    s = s - (h * 3600) - (m * 60);
+    if (round) s = Math.round(s);
+
+    const mm = m < 10 ? `0${m}` : `${m}`;
+    const ss = s < 10 ? `0${s}` : `${s}`;
+    if (h > 0) {
+      const hh = h < 10 ? `0${h}` : `${h}`;
+      return `${hh}:${mm}:${ss}`;
+    } else {
+      return `${mm}:${ss}`;
+    }
+  }
+
+  static percent(n: number, d: number): string {
+    return `${(n * 100 / d).toFixed(2)}%`;
+  }
+}
+
+function aggregate(counters: Array<Map<string, number>>): Map<string, number> {
+  const aggregated = new Map();
+  for (const counter of counters) {
+    for (const [k, v] of counter.entries()) {
+      aggregated.set(k, (aggregated.get(k) || 0) + v);
+    }
+  }
+  return aggregated;
 }
